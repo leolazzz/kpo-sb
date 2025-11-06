@@ -5,6 +5,7 @@ import hw2.model.*;
 import hw2.service.*;
 import hw2.builder.*;
 import hw2.strategy.*;
+import hw2.DIContainer.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -13,11 +14,12 @@ import java.util.Scanner;
 
 public class Main {
     public static void main(String[] args){
-        BankAccountService accountService = new BankAccountService();
-        CategoryService categoryService = new CategoryService();
-        OperationService operationService = new OperationService(accountService);
-        AnalyticsService analyticsService = new AnalyticsService(operationService, accountService, categoryService);
-        Facade facade = new Facade(accountService, categoryService, operationService, analyticsService);
+        DIContainer container = new DIContainer();
+        BankAccountService accountService = container.getmp(BankAccountService.class);
+        CategoryService categoryService = container.getmp(CategoryService.class);
+        OperationService operationService = container.getmp(OperationService.class);
+        AnalyticsService analyticsService = container.getmp(AnalyticsService.class);
+        Facade facade = container.getmp(Facade.class);
         Scanner scanner = new Scanner(System.in);
         while (true){
             System.out.println("Choose:");
