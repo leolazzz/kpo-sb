@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>GoZon Store</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        input, button { margin: 5px; padding: 8px; }
+        h2 { color: #333; }
+        #ordersList { list-style-type: none; padding: 0; }
+        #ordersList li {
+            border: 1px solid #ddd;
+            margin: 5px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status-PAID { color: green; font-weight: bold; }
+        .status-FAILED { color: red; font-weight: bold; }
+        .status-CREATED, .status-NEW { color: orange; font-weight: bold; }
+        .message { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+<h1>GoZon Store — Тестовый фронтенд</h1>
+
+<div style="background: #f5f5f5; padding: 15px; margin-bottom: 20px; border-radius: 5px;">
+    <label><strong>User ID:</strong> <input id="userId" type="text" value="user1"/></label>
+    <button onclick="checkConnection()" style="margin-left: 20px;">Проверить подключение</button>
+</div>
+
+<div style="display: flex; gap: 20px;">
+    <div style="flex: 1; border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
+        <h2>Payments Service</h2>
+        <button onclick="createAccount()">Создать счёт</button><br/><br/>
+        <label>Сумма пополнения: <input id="topUpAmount" type="number" value="2000"/></label>
+        <button onclick="topUp()">Пополнить</button><br/><br/>
+        <button onclick="getBalance()">Показать баланс</button>
+        <div id="balanceDisplay" style="margin-top: 10px; font-weight: bold;"></div>
+    </div>
+
+    <div style="flex: 1; border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
+        <h2>Orders Service</h2>
+        <label>Описание: <input id="orderDesc" type="text" value="Новый ноутбук"/></label><br/>
+        <label>Сумма: <input id="orderAmount" type="number" value="1500"/></label><br/>
+        <button onclick="createOrder()">Создать заказ</button><br/><br/>
+        <button onclick="listOrders()">Обновить список заказов</button>
+    </div>
+</div>
+
+<h2>Список заказов:</h2>
+<ul id="ordersList">
+    <li>Загрузка...</li>
+</ul>
+
+<div id="messageArea"></div>
+
+<script>
+    const API_BASE = 'http://localhost:8080';
+    let stompClient = null;
+    let isConnected = false;
+
+    function getUserId() {
+        return document.getElementById('userId').value.trim() || 'user1';
+    }
+
+    function showMessage(text, type = 'info') {
+        const messageArea = document.getElementById('messageArea');
+        const message = document.createElement('div');
+        message.className = `message ${type}`;
+        message.innerHTML = `
+            <strong>${type === 'error' ? 'false' : 'true'} ${new Date().toLocaleTimeString()}:</strong>
+            ${text}
+        `;
+        messageArea.prepend(message);
+
+        const messages = messageArea.getElementsByClassName('message');
+        if (messages.length > 5) {
+            messages[messages.length - 1].remove();
+        }
+    }
+
+    async function checkConnection() {
+        try {
+            const response = await fetch(`${API_BASE}/actuator/health`);
+            if (response.ok) {
+                showMessage('API Gateway доступен', 'success');
+                return true;
+            }
+        } catch (error) {
+            showMessage(`Ошибка подключения к API Gateway: ${error.message}`, 'error');
+        }
+        return false;
+    }
+
+    async function createAccount() {
+        try {
+            const response = await fetch(`${API_BASE}/payments/accounts`, {
+                method: 'POST',
+                headers: {
+                    'user-id': getUserId(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            });
+
+            if (response.ok) {
+                showMessage('Счёт успешно создан', 'success');
+            } else {
+                const errorText = await response.text();
+                showMessage(`Ошибка: ${errorText}`, 'error');
+            }
+        } catch (error) {
+            showMessage(`Сетевая ошибка: ${error.message}`, 'error');
+        }
+    }
+
+    async function topUp() {
+        const amount = document.getElementById('topUpAmount').value;
+        if (!amount || amount <= 0) {
+            showMessage('Введите корректную сумму', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/payments/accounts/topup`, {
+                method: 'POST',
+                headers: {
+                    'user-id': getUserId(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ amount: Number(amount) })
+            });
+
+            if (response.ok) {
+                showMessage(`Счёт пополнен на ${amount} руб.`, 'success');
+                getBalance();
+            } else {
+                const errorText = await response.text();
+                showMessage(`Ошибка: ${errorText}`, 'error');
+            }
+        } catch (error) {
+            showMessage(`Сетевая ошибка: ${error.message}`, 'error');
+        }
+    }
+
+    async function getBalance() {
+        try {
+            const response = await fetch(`${API_BASE}/payments/accounts/balance`, {
+                headers: { 'user-id': getUserId() }
+            });
+
+            if (response.ok) {
+                const balance = await response.text();
+                document.getElementById('balanceDisplay').innerHTML =
+                    `Текущий баланс: <span style="color: green; font-size: 1.2em;">${balance} руб.</span>`;
+            } else if (response.status === 404) {
+                createAccount();
+            } else {
+                showMessage('Не удалось получить баланс', 'error');
+            }
+        } catch (error) {
+            showMessage(`Ошибка: ${error.message}`, 'error');
+        }
+    }
+
+
+    async function createOrder() {
+        const desc = document.getElementById('orderDesc').value;
+        const amount = document.getElementById('orderAmount').value;
+
+        if (!amount || amount <= 0) {
+            showMessage('Введите корректную сумму заказа', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/orders`, {
+                method: 'POST',
+                headers: {
+                    'user-id': getUserId(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    description: desc,
+                    amount: Number(amount)
+                })
+            });
+
+            if (response.ok) {
+                const order = await response.json();
+                showMessage(`Заказ создан! ID: ${order.id}, статус: ${order.status}`, 'success');
+
+                connectWebSocket(order.id);
+
+                setTimeout(listOrders, 2000);
+            } else {
+                const errorText = await response.text();
+                showMessage(`Ошибка создания заказа: ${errorText}`, 'error');
+            }
+        } catch (error) {
+            showMessage(`Сетевая ошибка: ${error.message}`, 'error');
+        }
+    }
+
+    async function listOrders() {
+        try {
+            const response = await fetch(`${API_BASE}/orders`, {
+                headers: { 'user-id': getUserId() }
+            });
+
+            if (response.ok) {
+                const orders = await response.json();
+                const ordersList = document.getElementById('ordersList');
+
+                if (orders.length === 0) {
+                    ordersList.innerHTML = '<li>Нет заказов</li>';
+                    return;
+                }
+
+                ordersList.innerHTML = '';
+                orders.forEach(order => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <div style="border-left: 4px solid ${getStatusColor(order.status)}; padding-left: 10px;">
+                            <strong>Заказ #${order.id}</strong><br/>
+                            Описание: ${order.description || 'Нет описания'}<br/>
+                            Сумма: ${order.amount} руб.<br/>
+                            Статус: <span class="status-${order.status}">${order.status}</span><br/>
+                            Создан: ${new Date().toLocaleString()}
+                        </div>
+                    `;
+                    ordersList.appendChild(li);
+                });
+
+                showMessage(`Загружено ${orders.length} заказов`, 'success');
+            } else {
+                showMessage('Не удалось загрузить заказы', 'error');
+            }
+        } catch (error) {
+            showMessage(`Ошибка: ${error.message}`, 'error');
+        }
+    }
+
+    function getStatusColor(status) {
+        switch(status) {
+            case 'PAID': return 'green';
+            case 'FAILED': return 'red';
+            case 'CREATED':
+            case 'NEW': return 'orange';
+            default: return 'gray';
+        }
+    }
+
+    function connectWebSocket(orderId) {
+        if (stompClient && isConnected) {
+            subscribeToOrder(orderId);
+            return;
+        }
+
+        try {
+            const socket = new SockJS(`${API_BASE}/ws`);
+            stompClient = Stomp.over(socket);
+
+            stompClient.connect({}, function(frame) {
+                isConnected = true;
+                showMessage('WebSocket подключен', 'success');
+
+
+                subscribeToOrder(orderId);
+
+            }, function(error) {
+                isConnected = false;
+                showMessage(`WebSocket ошибка: ${error}`, 'error');
+            });
+        } catch (error) {
+            showMessage(`Ошибка создания WebSocket: ${error.message}`, 'error');
+        }
+    }
+
+    function subscribeToOrder(orderId) {
+        if (!stompClient || !isConnected) return;
+
+        stompClient.subscribe(`/topic/order/${orderId}`, function(message) {
+            const update = JSON.parse(message.body);
+            showMessage(`Статус заказа #${orderId} обновлен: ${update.status}`, 'success');
+
+
+            listOrders();
+
+
+            if (Notification.permission === "granted") {
+                new Notification(`Заказ #${orderId}`, {
+                    body: `Новый статус: ${update.status}`,
+                    icon: 'https://cdn-icons-png.flaticon.com/512/3144/3144456.png'
+                });
+            }
+        });
+
+
+        stompClient.subscribe(`/topic/orders/${getUserId()}`, function(message) {
+            const update = JSON.parse(message.body);
+            showMessage(`Обновление заказа #${update.orderId}: ${update.status}`, 'success');
+            listOrders();
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        if ("Notification" in window && Notification.permission === "default") {
+            Notification.requestPermission();
+        }
+
+        checkConnection();
+
+        getBalance();
+        listOrders();
+
+        setTimeout(() => {
+            if (!isConnected) {
+                showMessage('WebSocket не подключен. Он подключится автоматически при создании заказа.', 'info');
+            }
+        }, 3000);
+    });
+</script>
+</body>
+</html>
