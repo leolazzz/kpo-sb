@@ -1,0 +1,37 @@
+services:
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - FILE_STORING_SERVICE_URL=http://file-storing-service:8081
+      - FILE_ANALYSIS_SERVICE_URL=http://file-analysis-service:8082
+    networks:
+      - hw3-network
+
+  file-storing-service:
+    build: ./file-storing-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    networks:
+      - hw3-network
+    volumes:
+      - file-storage:/app/uploads
+
+  file-analysis-service:
+    build: ./file-analysis-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    networks:
+      - hw3-network
+
+networks:
+  hw3-network:
+    driver: bridge
+
+volumes:
+  file-storage:
